@@ -37,15 +37,14 @@ ACTIVE_PROFILE="unknown"
 
 verbose=false
 
-# major and minor versions of centos-release RPM
-# E.g., for centos-release-7-8.2003.0.el7.centos.x86_64
-# centos_major=7
-# centos_minor=8
-centos_major=0
-centos_minor=0
+# major and minor versions of Rocky Linux Release
+# Current Version : Rocky Linux 8 - 4.18.0-372.9.1.el8.x86_64
+rocky_major=0
+rocky_minor=0
 
-# el7.7+ kernel installed
-# For CentOS 7.7+, the default kernel (el7) has following options backported:
+# el8+ kernel installed
+# For Rocky Linux 8.6+, the default kernel (el8) has following options backported:
+# Do not know, need to research on this.
 # - nosmt: disable HT
 # - mitigations=off: disable CPU vulnerability mitigations
 new_elkernel=0
@@ -161,33 +160,33 @@ check_vmroot() {
   fi
 }
 
-# check centos release version
-# allow --dryrun for non-centos 7 system
-check_centos() {
-  centos_major=$(rpm --eval %{centos_ver})
+# check rocky linux release version
+# allow --dryrun for non-rocky 8 system
+check_rocky() {
+  rocky_major=$(rpm --eval %{rocky_ver})
 
-  if [[ $centos_major -ne 7 ]]; then
+  if [[ $rocky_major -ne 8 ]]; then
     if [[ "$dryrun" = 1 ]]; then
-      LOG "This script is only validated on CentOS 7."
+      LOG "This script is only validated on Rocky Linux 8."
     else
-      ERROR "This script is only validated on CentOS 7."
+      ERROR "This script is only validated on Rocky Linux 8."
     fi
   fi
 
-  local centos_ver=$(rpm --query centos-release)
-  local centos_sub=${centos_ver#"centos-release-"}
-  centos_minor=$(echo $centos_sub | awk -F'[.-]' '{print $2}')
+  local rocky_ver=$(rpm --query rocky-release)
+  local rocky_sub=${rocky_ver#"rocky-release-"}
+  rocky_minor=$(echo $rocky_sub | awk -F'[.-]' '{print $2}')
 
-  LOGV "CentOS version: ${centos_major}.${centos_minor}"
+  LOGV "Rocky Linux version: ${rocky_major}.${rocky_minor}"
 }
 
-# check if current kernel is CentOS 7.7+ default
+# check if current kernel is Rocky Linux 8.6+ default
 check_new_elkernel() {
   local uname=$(uname -r)
-  if [[ "$centos_major" -eq 7 ]] && [[ "$centos_minor" -ge 7 ]] && \
-    [[ "$uname" =~ "el7" ]]; then
+  if [[ "$rocky_major" -eq 8 ]] && [[ "$rocky_minor" -ge 8 ]] && \
+    [[ "$uname" =~ "el8" ]]; then
     new_elkernel=1
-    LOGV "Found el7.7+ kernel"
+    LOGV "Found el8+ kernel"
   fi
 }
 
@@ -371,9 +370,14 @@ tune_firewall() {
 tune_mitigations() {
   LOG "Disabling CPU mitigations"
   local grub_updated=0
-  update_grub_default spectre_v2=off && grub_updated=1
-  update_grub_default nopti && grub_updated=1
-  update_grub_default spec_store_bypass_disable=off
+  if [[ "$new_elkernel" -eq 1 ]]; then
+    update_grub_default mitigations=off && grub_updated=1
+  else
+    update_grub_default spectre_v2=off
+    update_grub_default nopti
+    update_grub_default spec_store_bypass_disable=off
+    grub_updated=1
+  fi
   if [[ "$grub_updated" -eq 1 ]]; then
     update_grub_config
     need_reboot=1
@@ -448,17 +452,28 @@ while [[ "$1" =~ "--" ]]; do
     exit 0
   fi
 done
-
+LOG "checking something: Godzilla"
+# common
 check_task
+# common
 check_bin
+# common functionality, modify access
 check_vmroot
-check_centos
+# functionality changes to check_os_from list
+check_rocky
+# functionality changes to check_el based on OS - May be combined as single check with previous function
 check_new_elkernel
+# common
 get_active_profile
+# common
 get_phy_cpus
+# common
 check_root
+# ! not sure if common or separate !
 get_grub_cfg
 
+# all the following will functions:
+# common functionality, access would be separated.
 [[ "$task_all" = 1 || "$task_hpcprofile" = 1 ]] && tune_hpcprofile
 [[ "$task_all" = 1 || "$task_tcpmem" = 1 ]] && tune_tcpmem
 [[ "$task_all" = 1 || "$task_limits" = 1 ]] && tune_limits
@@ -466,5 +481,6 @@ get_grub_cfg
 [[ "$task_all" = 1 || "$task_selinux" = 1 ]] && tune_selinux
 [[ "$task_all" = 1 || "$task_firewall" = 1 ]] && tune_firewall
 [[ "$task_all" = 1 || "$task_mitigations" = 1 ]] && tune_mitigations
-
+# common functionality, access would be separated.
+# Can have common file cleanup implementation with an external call for os-based cleanup as well.
 cleanup
